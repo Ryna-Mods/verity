@@ -1,0 +1,29 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Install Lua 5.1 and luacheck
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q lua5.1 luarocks
+          # Pinned, its dependencies too, as ryna_agent's CI pins them.
+          sudo luarocks install argparse 0.7.2-1
+          sudo luarocks install luafilesystem 1.9.0-1
+          sudo luarocks install luacheck 1.2.0-1
+      # luacheck, every file as Lua 5.1, the strings, and the tests against the oldest core this
+      # mod claims to work with (core.json).
+      - run: scripts/check.sh

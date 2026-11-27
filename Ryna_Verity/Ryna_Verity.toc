@@ -1,0 +1,30 @@
+## Interface: 16001
+## Title: Verity by Ryna
+## Notes: What a group says of the people it played with: tag a member of a dungeon run (commend or report, from a fixed list, no free text), see your own notes on a player's tooltip, and send your tags to Ryna's pool. A mod of Ryna; /ryna verity.
+## Author: Ryna contributors
+## Version: 0.1.0
+## Dependencies: Ryna_Core
+## OptionalDeps: Ryna_Chronicle
+## X-Ryna-API: 2
+## LoadOnDemand: 0
+
+Mod.lua
+Locales\enUS.lua
+Locales\deDE.lua
+Locales\frFR.lua
+Locales\esES.lua
+Locales\esMX.lua
+Locales\itIT.lua
+Locales\ptBR.lua
+Locales\ruRU.lua
+Locales\koKR.lua
+Locales\zhCN.lua
+Locales\zhTW.lua
+Tags.lua
+Group.lua
+Facts.lua
+Notebook.lua
+Comms.lua
+Section.lua
+Tooltip.lua
+Init.lua

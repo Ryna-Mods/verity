@@ -1,0 +1,116 @@
+# A release, from a signed tag `vX.Y.Z` on main: Ryna_Verity-X.Y.Z.zip (the one folder, as the Ryna app
+# and the bundle take it) and SHA256SUMS on one GitHub Release. The tag must be the TOC's version.
+# Nothing here is signed with a key: the bundle's index (Ryna-Mods/ryna) pins this zip by SHA-256,
+# and that index is what the app trusts. Run it by hand to build without publishing.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build the zip and keep it as a workflow artifact; publish nothing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      # Only a signed, annotated tag on a commit that is on main releases anything.
+      - name: The tag is signed and on main
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ref="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$GITHUB_REF_NAME")"
+          if [ "$(jq -r .object.type <<<"$ref")" != tag ]; then
+            echo "::error::$GITHUB_REF_NAME is a lightweight tag; a release needs a signed one (git tag -s)"; exit 1
+          fi
+          verified="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")" --jq .verification.verified)"
+          if [ "$verified" != true ]; then
+            echo "::error::$GITHUB_REF_NAME isn't signed by a key GitHub verifies"; exit 1
+          fi
+          status="$(gh api "repos/$GITHUB_REPOSITORY/compare/$GITHUB_SHA...main" --jq .status)"
+          case "$status" in
+            identical|ahead) echo "$GITHUB_REF_NAME: signed, and $GITHUB_SHA is on main" ;;
+            *) echo "::error::$GITHUB_SHA isn't on main (compare says $status)"; exit 1 ;;
+          esac
+      - id: v
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            out="$(node scripts/version.mjs --tag "$GITHUB_REF_NAME")"
+          else
+            out="$(node scripts/version.mjs)"
+          fi
+          echo "$out" >> "$GITHUB_OUTPUT"
+          echo "$out"
+      - name: Install Lua 5.1 and luacheck
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q lua5.1 luarocks
+          sudo luarocks install argparse 0.7.2-1
+          sudo luarocks install luafilesystem 1.9.0-1
+          sudo luarocks install luacheck 1.2.0-1
+      - run: scripts/check.sh
+      - name: The zip
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir dist
+          zip -r -X "dist/Ryna_Verity-${VERSION}.zip" Ryna_Verity -x '*.DS_Store'
+          unzip -l "dist/Ryna_Verity-${VERSION}.zip" | grep -q " Ryna_Verity/Ryna_Verity.toc\$"
+          # Exactly the one folder: the app and the bundle refuse a zip that holds anything else.
+          if unzip -Z1 "dist/Ryna_Verity-${VERSION}.zip" | grep -v '^Ryna_Verity/'; then
+            echo "::error::the zip holds something outside Ryna_Verity/"; exit 1
+          fi
+          (cd dist && sha256sum -- * > ../SHA256SUMS)
+          mv SHA256SUMS dist/
+          cat dist/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ steps.v.outputs.version }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag' && (github.event_name == 'push' || inputs.dry_run == false)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-${{ needs.build.outputs.version }}
+          path: dist
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # A published release is never changed, not even its files: a fix is a new version.
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::$GITHUB_REF_NAME already has a release, and a published release is never changed. Cut a new version."
+            exit 1
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag --title "Verity $VERSION" --generate-notes
